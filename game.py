@@ -73,6 +73,7 @@ restart_button_rect = pygame.Rect(WIDTH // 2 - 60, HEIGHT // 2 + 30, 120, 40)
 # Menu variables
 in_main_menu = True
 in_game_menu = False
+in_load_menu = False
 
 # Menu buttons
 menu_buttons = []
@@ -159,12 +160,12 @@ def calculate_total_potential_balance():
 
 # Function to save game state
 def save_game():
-    global player_balance, inventory_slots, anvil_item, inventory_slot_cost
+    global player_balance, inventory_slots, anvil_item
     save_data = {
         'player_balance': player_balance,
         'inventory_slots': [item.to_dict() if item else None for item in inventory_slots],
         'anvil_item': anvil_item.to_dict() if anvil_item else None,
-        'inventory_slot_cost': inventory_slot_cost,
+        # No need to save 'inventory_slot_cost' as it can be recalculated
     }
     # Save with a timestamped filename
     filename = os.path.join(SAVE_DIR, f'save_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
@@ -180,7 +181,9 @@ def load_game(filename):
     player_balance = save_data['player_balance']
     inventory_slots = [Item.from_dict(item) if item else None for item in save_data['inventory_slots']]
     anvil_item = Item.from_dict(save_data['anvil_item']) if save_data['anvil_item'] else None
-    inventory_slot_cost = save_data['inventory_slot_cost']
+    # Recalculate 'inventory_slot_cost' based on number of inventory slots
+    inventory_slot_cost = 5000 * 2 ** (len(inventory_slots) - 5)
+    shop_inventory['slot']['price'] = inventory_slot_cost
     print(f"Game loaded from {filename}")
 
 # Function to draw the main menu
@@ -195,7 +198,7 @@ def draw_main_menu():
     if in_main_menu:
         options = ["New Game", "Load", "Exit"]
     else:
-        options = ["Save", "Load", "Exit"]
+        options = ["Return", "Save", "Load", "New Game", "Exit"]
 
     for i, option in enumerate(options):
         button_rect = pygame.Rect(WIDTH // 2 - 100, 200 + i * 80, 200, 50)
@@ -235,7 +238,7 @@ def draw_save_files_menu(files):
 # Main game loop
 def main():
     global player_balance, dragging_item, drag_offset, anvil_item, game_over, inventory_slots, inventory_slot_cost
-    global in_main_menu, in_game_menu, menu_buttons, save_files, dragging_full_size_image
+    global in_main_menu, in_game_menu, in_load_menu, menu_buttons, save_files, dragging_full_size_image
 
     clock = pygame.time.Clock()
     running = True
@@ -252,60 +255,69 @@ def main():
                 running = False
                 continue
 
-            if in_main_menu or in_game_menu:
+            if in_main_menu or in_game_menu or in_load_menu:
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     mouse_pos = pygame.mouse.get_pos()
-                    # Handle menu button clicks
-                    for option, button_rect in menu_buttons:
-                        if button_rect.collidepoint(mouse_pos):
-                            if option == "New Game":
-                                # Start new game
-                                player_balance = 5000
-                                inventory_slots = [None] * initial_inventory_slots
-                                inventory_slot_cost = 5000
-                                shop_inventory['slot']['price'] = inventory_slot_cost
-                                anvil_item = None
-                                game_over = False
-                                in_main_menu = False
-                                in_game_menu = False
-                            elif option == "Save":
-                                # Save game
-                                save_game()
-                                in_game_menu = False
-                            elif option == "Load":
-                                # Load game
-                                save_files = os.listdir(SAVE_DIR)
-                                save_files = [f for f in save_files if f.endswith('.json')]
-                                in_main_menu = False
-                                in_game_menu = False
-                            elif option == "Exit":
-                                # Exit game
-                                running = False
-                                break
-                elif event.type == pygame.MOUSEBUTTONDOWN and save_files:
-                    mouse_pos = pygame.mouse.get_pos()
-                    # Handle save file selection
-                    buttons = draw_save_files_menu(save_files)
-                    for filename, button_rect in buttons:
-                        if button_rect.collidepoint(mouse_pos):
-                            if filename == "Back":
-                                # Go back to main menu
-                                save_files = []
-                                if in_main_menu:
-                                    menu_buttons = draw_main_menu()
+                    if in_load_menu:
+                        # Handle save file selection
+                        buttons = draw_save_files_menu(save_files)
+                        for filename, button_rect in buttons:
+                            if button_rect.collidepoint(mouse_pos):
+                                if filename == "Back":
+                                    # Go back to previous menu
+                                    in_load_menu = False
+                                    if in_main_menu:
+                                        menu_buttons = draw_main_menu()
+                                    elif in_game_menu:
+                                        menu_buttons = draw_main_menu()
                                 else:
-                                    in_game_menu = True
-                                    menu_buttons = draw_main_menu()
-                            else:
-                                # Load selected game
-                                load_game(filename)
-                                save_files = []
-                                in_main_menu = False
-                                in_game_menu = False
-                            break
+                                    # Load selected game
+                                    load_game(filename)
+                                    save_files = []
+                                    in_main_menu = False
+                                    in_game_menu = False
+                                    in_load_menu = False
+                                break
+                    else:
+                        # Handle menu button clicks
+                        for option, button_rect in menu_buttons:
+                            if button_rect.collidepoint(mouse_pos):
+                                if option == "New Game":
+                                    # Start new game
+                                    player_balance = 5000
+                                    inventory_slots = [None] * initial_inventory_slots
+                                    # Calculate initial slot cost
+                                    inventory_slot_cost = 5000 * 2 ** (len(inventory_slots) - 5)
+                                    shop_inventory['slot']['price'] = inventory_slot_cost
+                                    anvil_item = None
+                                    game_over = False
+                                    in_main_menu = False
+                                    in_game_menu = False
+                                    in_load_menu = False
+                                elif option == "Save":
+                                    # Save game
+                                    save_game()
+                                    in_game_menu = False
+                                    in_load_menu = False
+                                elif option == "Load":
+                                    # Load game
+                                    save_files = os.listdir(SAVE_DIR)
+                                    save_files = [f for f in save_files if f.endswith('.json')]
+                                    # Sort save files by date (most recent first)
+                                    save_files.sort(reverse=True)
+                                    in_load_menu = True
+                                elif option == "Exit":
+                                    # Exit game
+                                    running = False
+                                    break
+                                elif option == "Return":
+                                    # Return to game
+                                    in_game_menu = False
+                                    in_load_menu = False
+                                break
                 else:
                     # Redraw menu
-                    if save_files:
+                    if in_load_menu:
                         buttons = draw_save_files_menu(save_files)
                     else:
                         menu_buttons = draw_main_menu()
@@ -316,7 +328,8 @@ def main():
                         # Reset game state
                         player_balance = 5000
                         inventory_slots = [None] * initial_inventory_slots
-                        inventory_slot_cost = 5000
+                        # Calculate initial slot cost
+                        inventory_slot_cost = 5000 * 2 ** (len(inventory_slots) - 5)
                         shop_inventory['slot']['price'] = inventory_slot_cost
                         anvil_item = None
                         game_over = False
@@ -331,7 +344,7 @@ def main():
                     else:
                         # Check shop items
                         for idx, (item_name, item_info) in enumerate(shop_inventory.items()):
-                            item_rect = pygame.Rect(100, 50 + idx * 80, 50, 50)
+                            item_rect = pygame.Rect(150, 50 + idx * 80, 50, 50)
                             if item_rect.collidepoint(mouse_pos):
                                 if player_balance >= item_info['price']:
                                     if item_name == 'slot':
@@ -339,8 +352,8 @@ def main():
                                         if len(inventory_slots) < max_inventory_slots:
                                             player_balance -= item_info['price']
                                             inventory_slots.append(None)
-                                            # Update slot price
-                                            inventory_slot_cost *= 2
+                                            # Update slot price based on new number of slots
+                                            inventory_slot_cost = 5000 * 2 ** (len(inventory_slots) - 5)
                                             shop_inventory['slot']['price'] = inventory_slot_cost
                                             # Check for game over
                                             if calculate_total_potential_balance() < 1000:
@@ -448,21 +461,11 @@ def main():
                         dragging_full_size_image = False
 
         # Drawing
-        if in_main_menu or in_game_menu:
-            if save_files:
-                draw_save_files_menu(save_files)
+        if in_main_menu or in_game_menu or in_load_menu:
+            if in_load_menu:
+                buttons = draw_save_files_menu(save_files)
             else:
                 menu_buttons = draw_main_menu()
-                # If in-game menu, display "Save" instead of "New Game"
-                if in_game_menu:
-                    options = ["Save", "Load", "Exit"]
-                    for i, option in enumerate(options):
-                        button_rect = pygame.Rect(WIDTH // 2 - 100, 200 + i * 80, 200, 50)
-                        pygame.draw.rect(screen, GRAY, button_rect)
-                        button_text = font.render(option, True, WHITE)
-                        screen.blit(button_text, (button_rect.x + (button_rect.width - button_text.get_width()) // 2,
-                                                  button_rect.y + (button_rect.height - button_text.get_height()) // 2))
-                        menu_buttons[i] = (option, button_rect)
         elif game_over:
             # Draw game over screen
             game_over_text = large_font.render("Smithy went bankrupt!!!", True, RED)
